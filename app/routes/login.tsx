@@ -35,9 +35,7 @@ export default function Login() {
 
             <div className="bg-white/90 backdrop-blur-xl max-w-md w-full rounded-[2.5rem] shadow-2xl shadow-black/20 p-8 md:p-10 border border-white/20 relative z-10">
                 <div className="text-center mb-10">
-                    <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg transform -rotate-3">
-                        <span className="font-bold text-3xl font-heading">FS</span>
-                    </div>
+                    <img src="/logo.jpg" alt="FDS" className="w-24 h-24 object-contain rounded-xl shadow-md mx-auto mb-6 bg-white p-2" />
                     <h1 className="text-3xl font-bold text-slate-900 font-heading tracking-tight">{isRegister ? "Create Account" : "Welcome Back"}</h1>
                     <p className="text-slate-500 mt-2 text-base font-medium">Dental Payroll Manager</p>
                 </div>

@@ -10,77 +10,72 @@ import { type StaffMember, type DaySchedule, type DailyLog } from "../services/f
 // --- Sub-Component: Schedule Cell ---
 const ScheduleCell = ({ date, memberId, schedule, onUpdate, dayIndex, weekDays, memberIndex, totalMembers }: any) => {
     const rawValue = schedule[date]?.[memberId] || '';
-    // If old text exists (contains -), try to parse it, otherwise use raw
-    const initialVal = rawValue.includes('-') ? calculateHoursFromTimes(...rawValue.split('-') as [string, string]).toString() : rawValue;
 
-    // We only show if > 0, else empty string for cleaner UI
-    const [localVal, setLocalVal] = useState(initialVal === '0' ? '' : initialVal);
+    // Parse DB value
+    const [dbStart, dbEnd] = rawValue.includes('-') ? rawValue.split('-') : ['', ''];
 
-    // Sync from DB
+    const [start, setStart] = useState(dbStart);
+    const [end, setEnd] = useState(dbEnd);
+
+    // Sync with DB changes
     useEffect(() => {
-        const dbVal = schedule[date]?.[memberId] || '';
-        // Handle legacy data on the fly
-        const val = dbVal.includes('-') ? calculateHoursFromTimes(...dbVal.split('-') as [string, string]).toString() : dbVal;
-        if (val !== localVal) {
-            setLocalVal(val === '0' ? '' : val);
+        const val = schedule[date]?.[memberId] || '';
+        if (val.includes('-')) {
+            const [s, e] = val.split('-');
+            setStart(s);
+            setEnd(e);
+        } else {
+            setStart('');
+            setEnd('');
         }
     }, [schedule, date, memberId]);
 
-    const scheduledHours = parseFloat(localVal || '0');
+    const handleBlur = () => {
+        const formattedStart = formatSmartTime(start);
+        const formattedEnd = formatSmartTime(end, true);
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
+        // Update local mostly for visual feedback immediately
+        setStart(formattedStart);
+        setEnd(formattedEnd);
 
-            // Move across the week first
-            let nextIndex = dayIndex + 1;
-            let nextMemberIndex = memberIndex;
-
-            // If at end of week, move to next employee's first day
-            if (nextIndex >= 7) {
-                nextIndex = 0;
-                nextMemberIndex = memberIndex + 1;
-            }
-
-            // Check boundaries
-            if (nextMemberIndex < totalMembers) {
-                const nextDate = weekDays[nextIndex];
-                // We need to know the ID of the next member. This is tricky without passing the array of IDs or having a predictable ID.
-                // Simplified approach: Try to find sibling input by ID construction if possible, or just traversing the DOM form.
-                // Better approach: pass `nextMemberId` prop? Too complex.
-                // Let's stick to simple day traversal for now. The user said "Tuesday, then Wednesday".
-
-                // Actually, we can construct the ID if we assume we render in order. 
-                // But memberId is a UUID.
-                // Alternative: Just simple traverse?
-                const form = (e.target as HTMLElement).closest('form') || document.body; // or just document
-                const inputs = Array.from(document.querySelectorAll('input[data-nav="schedule"]'));
-                const currentIndex = inputs.indexOf(e.target as HTMLInputElement);
-                if (currentIndex > -1 && currentIndex < inputs.length - 1) {
-                    (inputs[currentIndex + 1] as HTMLElement).focus();
-                }
-            }
+        if (formattedStart && formattedEnd) {
+            onUpdate(date, memberId, `${formattedStart}-${formattedEnd}`);
+        } else if (formattedStart || formattedEnd) {
+            // Save partial if needed, or clear. Let's save partial to allow coming back.
+            onUpdate(date, memberId, `${formattedStart}-${formattedEnd}`);
+        } else {
+            // Both empty
+            onUpdate(date, memberId, '');
         }
     };
 
-    const handleBlur = (val: string) => {
-        onUpdate(date, memberId, val);
-    };
+    const hours = calculateHoursFromTimes(start, end);
 
     return (
-        <div className="flex flex-col bg-gray-50 rounded-xl p-1.5 h-full border border-gray-100 shadow-sm items-center min-w-[100px] justify-center">
-            <div className="flex items-center justify-center gap-1 w-full">
+        <div className="flex flex-col bg-gray-50 rounded-xl p-1.5 h-auto border border-gray-100 shadow-sm items-center justify-center min-w-[100px] transition-colors hover:border-emerald-200/50 group/cell">
+            <div className="flex flex-col items-center gap-0.5 w-full mb-1">
                 <input
-                    data-nav="schedule"
-                    type="number"
-                    step="0.5"
-                    className="w-full h-10 text-center font-bold text-lg border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white text-gray-800"
-                    placeholder="-"
-                    value={localVal}
-                    onChange={(e) => setLocalVal(e.target.value)}
-                    onBlur={(e) => handleBlur(e.target.value)}
-                    onKeyDown={handleKeyDown}
+                    data-nav="schedule-start"
+                    type="text"
+                    className="w-full text-center text-[11px] font-bold text-gray-700 bg-transparent outline-none placeholder:text-gray-300 p-0 focus:text-emerald-700"
+                    placeholder="Start"
+                    value={start}
+                    onChange={(e) => setStart(e.target.value)}
+                    onBlur={handleBlur}
                 />
+                <div className="w-8 h-[1px] bg-gray-200 group-hover/cell:bg-emerald-200/50 transition-colors" />
+                <input
+                    data-nav="schedule-end"
+                    type="text"
+                    className="w-full text-center text-[11px] font-bold text-gray-700 bg-transparent outline-none placeholder:text-gray-300 p-0 focus:text-emerald-700"
+                    placeholder="End"
+                    value={end}
+                    onChange={(e) => setEnd(e.target.value)}
+                    onBlur={handleBlur}
+                />
+            </div>
+            <div className={`text-xs font-bold px-3 py-1 rounded-md mt-1 ${hours > 0 ? 'bg-emerald-100 text-emerald-700' : 'text-gray-300'}`}>
+                {hours > 0 ? hours : '-'}
             </div>
         </div>
     );
@@ -240,7 +235,7 @@ export default function SchedulePage() {
                                                 ))}
                                                 {/* Weekly Totals Cell */}
                                                 <div className="flex flex-col justify-center items-center bg-slate-50 rounded-2xl border border-slate-100 p-2 shadow-inner">
-                                                    <div className="text-lg font-bold text-slate-700 font-heading">{totalSched.toFixed(0)}</div>
+                                                    <div className="text-lg font-bold text-slate-700 font-heading">{parseFloat(totalSched.toFixed(2))}</div>
                                                     <span className="text-[10px] font-bold text-slate-400 uppercase">hrs</span>
                                                 </div>
                                             </div>

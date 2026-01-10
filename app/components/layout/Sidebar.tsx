@@ -76,7 +76,7 @@ export const Sidebar = () => {
                 <div className="mb-10 px-2 mt-2">
                     <div className="flex items-center gap-4 mb-2">
                         {/* Logo */}
-                        <img src="/logo.jpg" alt="FDS" className="w-16 h-16 object-contain rounded-xl shadow-md rotate-[-3deg]" />
+                        <img src="/logo.jpg" alt="FDS" className="w-16 h-16 object-contain rounded-xl shadow-md scale-110" />
                         <div>
                             <span className="text-xl font-bold text-slate-800 tracking-tight block leading-none font-heading">
                                 Family
