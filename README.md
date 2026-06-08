@@ -40,7 +40,15 @@ A modern, full-stack payroll and team management application built with **React 
 3. Configure Firebase:
    - Create a project in the [Firebase Console](https://console.firebase.google.com/).
    - Create a web app within the project.
-   - Update `app/services/firebase.ts` (or environment variables) with your Firebase config keys.
+   - Create a `.env` or `.env.local` file in the root directory and populate it with your Firebase config values:
+     ```env
+     VITE_FIREBASE_API_KEY=your-api-key
+     VITE_FIREBASE_AUTH_DOMAIN=your-project-id.firebaseapp.com
+     VITE_FIREBASE_PROJECT_ID=your-project-id
+     VITE_FIREBASE_STORAGE_BUCKET=your-project-id.firebasestorage.app
+     VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+     VITE_FIREBASE_APP_ID=your-app-id
+     ```
 
 ### Development
 
@@ -66,5 +74,7 @@ Deploy to Firebase Hosting:
 
 ```bash
 npm run build
-firebase deploy
+npx firebase deploy
+# Or, to deploy only hosting:
+npx firebase deploy --only hosting
 ```
