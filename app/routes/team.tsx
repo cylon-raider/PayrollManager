@@ -1,3 +1,14 @@
+/**
+ * Manage Team Route Component
+ * 
+ * Provides administrative controls and general directory for practice staff members.
+ * Supports:
+ * - Tabbed navigation split: Staff Directory list & User Access control.
+ * - Full CRUD capability on clinic staff profiles (Admins only).
+ * - System access management: Admins can promote/demote logins (Viewer vs Admin) with self-demotion blocks.
+ * - Live document synchronization via Firestore streams.
+ */
+
 import { useState, useEffect } from "react";
 import { onSnapshot, setDoc, doc, deleteDoc, updateDoc, collection } from "firebase/firestore";
 import { Plus, Pencil, Trash2, X, Briefcase, User, ChevronRight, Shield, BadgeCheck, Lock } from "lucide-react";
@@ -8,7 +19,6 @@ import type { StaffMember } from "../services/firestore";
 import { formatCurrency } from "../utils/calculations";
 import { useAuth, type UserRole } from "../context/AuthContext";
 
-// Define AppUser type locally if not exported, or just use 'any' for the snapshot
 interface AppUserData {
     uid: string;
     email: string;
@@ -18,15 +28,18 @@ interface AppUserData {
 
 export default function TeamPage() {
     const { isAdmin, user: currentUser } = useAuth();
+    
+    // Tab toggling state: 'staff' (employee directory) vs 'access' (system login permissions)
     const [activeTab, setActiveTab] = useState<'staff' | 'access'>('staff');
 
-    // Staff Data
     const [staff, setStaff] = useState<StaffMember[]>([]);
-
-    // Users Data
     const [appUsers, setAppUsers] = useState<AppUserData[]>([]);
 
+    // ==========================================
+    // --- Real-Time Sync Subscriptions ---
+    // ==========================================
     useEffect(() => {
+        // Staff collection observer, sorted alphabetically by employee name
         const unsubStaff = onSnapshot(collections.staff, (snapshot) => {
             const loadedStaff = snapshot.docs.map((doc) => ({
                 ...doc.data(),
@@ -37,7 +50,8 @@ export default function TeamPage() {
             console.error("Error fetching staff:", error);
         });
 
-        // Only fetch users if Admin
+        // App access user records observer:
+        // Only queries the database if the active user session is an Admin.
         let unsubUsers = () => { };
         if (isAdmin) {
             unsubUsers = onSnapshot(collection(db, "users"), (s) => {
@@ -45,23 +59,29 @@ export default function TeamPage() {
                     const data = d.data();
                     return {
                         ...data,
-                        uid: data.uid || d.id, // Fallback to doc ID if uid is missing in body
+                        uid: data.uid || d.id, // Resolve document identifiers
                         email: data.email || "No Email"
                     } as AppUserData;
                 }));
             });
         }
 
+        // Unmount teardown
         return () => { unsubStaff(); unsubUsers(); };
     }, [isAdmin]);
 
-    // --- Staff Management Logic ---
+    // ==========================================
+    // --- Staff Management CRUD Actions ---
+    // ==========================================
     const [isEditing, setIsEditing] = useState<StaffMember | null>(null);
     const [name, setName] = useState("");
     const [dept, setDept] = useState<Department>("General");
     const [role, setRole] = useState("");
     const [rate, setRate] = useState("");
 
+    /**
+     * Handles both Insertions and Updates of Staff records.
+     */
     const handleSaveStaff = async (e: React.FormEvent) => {
         e.preventDefault();
         const memberData = {
@@ -73,8 +93,10 @@ export default function TeamPage() {
 
         try {
             if (isEditing) {
+                // UPDATE: overwrite specific document properties
                 await updateDoc(doc(db, "staff", isEditing.id), memberData);
             } else {
+                // INSERT: create a new document with unique timestamp string ID
                 await setDoc(doc(db, "staff", Date.now().toString()), memberData);
             }
             resetForm();
@@ -84,6 +106,9 @@ export default function TeamPage() {
         }
     };
 
+    /**
+     * Deletes a staff member document from Firestore.
+     */
     const handleDeleteStaff = async (id: string) => {
         if (confirm("Remove this staff member?")) {
             await deleteDoc(doc(db, "staff", id));
@@ -98,23 +123,33 @@ export default function TeamPage() {
         setRate("");
     };
 
+    // Fills input forms with clicked staff details to prepare updates
     const startEdit = (member: StaffMember) => {
         setIsEditing(member);
         setName(member.name);
         setDept(member.department as Department);
         setRole(member.role);
         setRate(member.rate.toString());
+        // Smooth scroll to top of page to make form visible on small screens
         window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
-    // --- User Access Logic ---
+    // ==========================================
+    // --- Authorization / Access Controls ---
+    // ==========================================
+
+    /**
+     * Toggles users access roles in Firestore between Admin and Viewer.
+     * Prevents self-demotion safety violations.
+     */
     const toggleAdmin = async (targetUid: string, currentRole: UserRole) => {
-        if (targetUid === currentUser?.uid) return; // Can't demote yourself
+        // Self-Demotion Block: Protect active user from lockouts
+        if (targetUid === currentUser?.uid) return;
         const newRole = currentRole === 'admin' ? 'viewer' : 'admin';
         await updateDoc(doc(db, "users", targetUid), { role: newRole });
     };
 
-    // --- Render Helpers ---
+    // Group staff list dynamically by department names
     const groupedStaff = staff.reduce((acc, member) => {
         const d = member.department || 'Other';
         acc[d] = acc[d] || [];
@@ -124,6 +159,7 @@ export default function TeamPage() {
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Header / Tabs */}
             <header className="bg-white/80 backdrop-blur-md border border-white/50 p-6 rounded-[2rem] shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900 font-heading">Manage Team</h1>
@@ -131,6 +167,7 @@ export default function TeamPage() {
                         Directory and Access Control
                     </p>
                 </div>
+                {/* Render Tab switches if user is Admin. Viewers are locked to Staff directory */}
                 {isAdmin && (
                     <div className="bg-slate-100/50 p-1.5 rounded-2xl flex border border-slate-200/50">
                         <button
@@ -149,10 +186,12 @@ export default function TeamPage() {
                 )}
             </header>
 
-            {/* --- TAB: STAFF LIST --- */}
+            {/* ======================================================== */}
+            {/* TAB: STAFF LIST DIRECTORY                                */}
+            {/* ======================================================== */}
             {activeTab === 'staff' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Form Section - ONLY FOR ADMIN */}
+                    {/* Add / Edit Form Panel - Enforced: Rendered only for Admins */}
                     {isAdmin && (
                         <div className="lg:col-span-1">
                             <form onSubmit={handleSaveStaff} className="bg-white/90 backdrop-blur-xl p-8 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-white/50 space-y-6 sticky top-6">
@@ -205,7 +244,7 @@ export default function TeamPage() {
                         </div>
                     )}
 
-                    {/* List Section */}
+                    {/* Directory Listings panel */}
                     <div className={isAdmin ? "lg:col-span-2 space-y-8" : "lg:col-span-3 space-y-8"}>
                         {Object.entries(groupedStaff).map(([groupName, members]) => (
                             <div key={groupName} className="bg-white/80 backdrop-blur-md rounded-[2rem] shadow-sm border border-white/60 overflow-hidden">
@@ -220,6 +259,7 @@ export default function TeamPage() {
                                                 <div className="font-bold text-slate-800 text-lg mb-1">{member.name}</div>
                                                 <div className="text-sm text-slate-500 flex items-center gap-3">
                                                     <span className="bg-slate-100 px-2 py-0.5 rounded text-xs font-medium">{member.role}</span>
+                                                    {/* Rate details are strictly guarded. Visible only to Admins. */}
                                                     {isAdmin && (
                                                         <>
                                                             <span className="w-1 h-1 rounded-full bg-slate-300"></span>
@@ -230,6 +270,7 @@ export default function TeamPage() {
                                                     )}
                                                 </div>
                                             </div>
+                                            {/* Action triggers: rendering edit/delete options solely for Admins */}
                                             {isAdmin && (
                                                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
                                                     <button onClick={() => startEdit(member)} className="p-2.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"><Pencil size={18} /></button>
@@ -245,7 +286,9 @@ export default function TeamPage() {
                 </div>
             )}
 
-            {/* --- TAB: ACCESS CONTROL --- */}
+            {/* ======================================================== */}
+            {/* TAB: SYSTEM USER ACCESS ROLES CONTROL                    */}
+            {/* ======================================================== */}
             {activeTab === 'access' && isAdmin && (
                 <div className="bg-white/80 backdrop-blur-md rounded-[2rem] shadow-sm border border-white/60 overflow-hidden max-w-4xl mx-auto">
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-8 py-6 border-b border-blue-100/50">
@@ -274,6 +317,7 @@ export default function TeamPage() {
                                         {u.role.toUpperCase()}
                                     </div>
 
+                                    {/* Action Toggles with Safety Blocks (can't demote yourself, or demote Owner email) */}
                                     {u.uid !== currentUser?.uid && u.email !== OWNER_EMAIL && (
                                         <button
                                             onClick={() => toggleAdmin(u.uid, u.role)}

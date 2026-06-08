@@ -1,3 +1,16 @@
+/**
+ * Financials & Payroll Route Component
+ * 
+ * Provides an administrative dashboard containing:
+ * - Real-time labor cost tracking based on active schedule hours.
+ * - Dynamic Production Targets needed to meet overhead targets.
+ * - Live EBITDA and EBITDA margin calculations.
+ * - Dynamic breakdowns by date ranges (Daily, Weekly, Monthly).
+ * 
+ * Authorization Check: Restricts access solely to 'admin' roles. Redirection is triggered
+ * on mount/role changes for viewer users.
+ */
+
 import { useState, useEffect, useMemo } from "react";
 import { onSnapshot, doc, setDoc } from "firebase/firestore";
 import { Calculator, Clock, DollarSign, ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
@@ -17,13 +30,20 @@ export default function FinancialsPage() {
     const { isAdmin, loading } = useAuth();
     const navigate = useNavigate();
 
+    // ==========================================
+    // --- Security Route Guard Effect ---
+    // ==========================================
     useEffect(() => {
+        // Redirection trigger: If auth loaded and user lacks administrative role,
+        // navigate them away to the schedule page.
         if (!loading && !isAdmin) {
             navigate("/schedule");
         }
     }, [isAdmin, loading, navigate]);
 
-    // --- State ---
+    // ==========================================
+    // --- Layout State Managers ---
+    // ==========================================
     const [timeframe, setTimeframe] = useState<Timeframe>('daily');
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -31,32 +51,37 @@ export default function FinancialsPage() {
     const [schedule, setSchedule] = useState<Record<string, Record<string, string>>>({});
     const [dailyLogs, setDailyLogs] = useState<Record<string, DailyLog>>({});
 
-    // Collections Input State (Persisted in DailyLog)
+    // Local state to capture collections input before writing to Firestore
     const [localCollections, setLocalCollections] = useState("");
 
-    // --- Data Fetching ---
+    // ==========================================
+    // --- Real-Time Firestore Sync Hooks ---
+    // ==========================================
     useEffect(() => {
+        // Fetch staff profiles
         const unsubStaff = onSnapshot(collections.staff, s =>
             setStaff(s.docs.map(d => ({ ...d.data(), id: d.id } as StaffMember)).sort((a, b) => a.name.localeCompare(b.name)))
         );
 
-        // Fetch Schedule
+        // Fetch planned schedules
         const unsubSched = onSnapshot(collections.schedule, s => {
             const data: Record<string, Record<string, string>> = {};
             s.docs.forEach(d => data[d.id] = d.data() as any);
             setSchedule(data);
         });
 
-        // Fetch Logs (Only for Collections now)
+        // Fetch historical daily logs (holds collections amounts)
         const unsubLogs = onSnapshot(collections.dailyLogs, s => {
             const data: Record<string, DailyLog> = {};
             s.docs.forEach(d => data[d.id] = d.data());
             setDailyLogs(data);
         });
+        
+        // Clean up listeners when navigating away
         return () => { unsubStaff(); unsubSched(); unsubLogs(); };
     }, []);
 
-    // Sync collections input
+    // Sync input field value when date or collection log document changes
     useEffect(() => {
         if (timeframe === 'daily') {
             const val = dailyLogs[selectedDate]?.collections || "";
@@ -66,30 +91,36 @@ export default function FinancialsPage() {
         }
     }, [selectedDate, dailyLogs, timeframe]);
 
+    /**
+     * Updates daily practice collections (revenue) in Firestore.
+     */
     const handleCollectionsChange = async (val: string) => {
         setLocalCollections(val);
         if (timeframe === 'daily') {
             const num = parseFloat(val);
+            // Saves value reactively to the daily log document for the selected date
             await setDoc(doc(db, 'daily_logs', selectedDate), { collections: isNaN(num) ? 0 : num }, { merge: true });
         }
     };
 
-    // Helper to parse hours (supports "9-5" and "8")
+    /**
+     * Helper to compute decimal hours from strings.
+     * Handles both raw decimals ("8") and legacy time ranges ("9:00 AM-5:00 PM").
+     */
     const parseHours = (val: string | undefined) => {
         if (!val) return 0;
         if (val.includes('-')) {
-            // Basic parsing for legacy range if needed, reusing logic or simplified
-            // Given we don't import calculateHoursFromTimes here, let's keep it simple or import it.
-            // Ideally we should import it. But for now, let's assume the new "8" format is dominant or just handle simple parsing.
-            // Actually, let's import it from calculations if possible. It IS imported.
             const [s, e] = val.split('-');
             return calculateHoursFromTimes(s, e);
         }
         return parseFloat(val) || 0;
     };
 
-    // --- Calculations ---
+    // ==========================================
+    // --- Performance Optimization calculations ---
+    // ==========================================
     const financials = useMemo(() => {
+        // Build array of dates to aggregate based on selected timeframe
         let dates: string[] = [];
         if (timeframe === 'daily') dates = [selectedDate];
         else if (timeframe === 'weekly') dates = getWeekDays(selectedDate);
@@ -98,41 +129,47 @@ export default function FinancialsPage() {
         let staffCost = 0;
         let drCost = 0;
         const deptCosts: Record<string, number> = {};
-
-        // Store breakdown for UI
         const staffHours: Record<string, number> = {};
 
+        // Aggregate wage hours and loaded costs across dates for each staff member
         staff.forEach(member => {
             let totalH = 0;
             dates.forEach(d => {
-                const val = schedule[d]?.[member.id]; // Read from Schedule
+                const val = schedule[d]?.[member.id];
                 totalH += parseHours(val);
             });
 
             staffHours[member.id] = totalH;
 
+            // Calculate loaded wage cost (incorporates loaded rate: rate * 1.17)
             const cost = calculateStaffCost(totalH, member.rate);
 
+            // Separate Doctor costs from standard clinical staff costs
             if (member.department === 'Dr' || member.role.toLowerCase().includes('doctor')) {
                 drCost += cost;
             } else {
                 staffCost += cost;
             }
 
+            // Group costs by department
             const dept = member.department || 'Other';
             deptCosts[dept] = (deptCosts[dept] || 0) + cost;
         });
 
+        // Calculate Production Needed to meet practice goals:
+        // Staff costs must be <= 25% of collections. Doctors <= 28%.
         const staffProdNeeded = calculateProductionNeeded(staffCost, TARGETS.STAFF_OVERHEAD);
         const drProdNeeded = calculateProductionNeeded(drCost, TARGETS.DOCTOR_OVERHEAD);
 
         return { staffCost, drCost, staffProdNeeded, drProdNeeded, deptCosts, staffHours };
     }, [staff, schedule, selectedDate, timeframe]);
 
+    // EBITDA calculations: Collections minus loaded payroll expenses
     const collectionsVal = parseFloat(localCollections) || 0;
     const ebitda = collectionsVal - (financials.staffCost + financials.drCost);
     const ebitdaPercent = collectionsVal > 0 ? (ebitda / collectionsVal) * 100 : 0;
 
+    // Shift timeframe dates
     const shiftDate = (dir: number) => {
         const d = new Date(selectedDate);
         if (timeframe === 'monthly') d.setMonth(d.getMonth() + dir);
@@ -154,11 +191,9 @@ export default function FinancialsPage() {
         return dir > 0 ? 'Next Month' : 'Prev Month';
     };
 
-    // --- Render ---
-
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Header */}
+            {/* Header timeframe controls */}
             <header className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-8 rounded-[2rem] shadow-2xl shadow-emerald-900/10 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full mix-blend-overlay filter blur-3xl opacity-30 -mr-16 -mt-16"></div>
 
@@ -169,6 +204,7 @@ export default function FinancialsPage() {
                             Overview & Projections (Based on Schedule)
                         </p>
                     </div>
+                    {/* Timeframe switchers */}
                     <div className="flex items-center gap-2 bg-black/20 p-1.5 rounded-2xl w-fit backdrop-blur-sm border border-white/10">
                         {(['daily', 'weekly', 'monthly'] as Timeframe[]).map(t => (
                             <button
@@ -182,7 +218,7 @@ export default function FinancialsPage() {
                     </div>
                 </div>
 
-                {/* Date Nav */}
+                {/* Date Navigator Banner */}
                 <div className="mt-8 flex items-center justify-center relative z-10">
                     <div className="flex items-center gap-6 bg-white/10 px-6 py-3 rounded-2xl backdrop-blur-md border border-white/20 shadow-lg hover:bg-white/15 transition-colors">
                         <button onClick={() => shiftDate(-1)} className="p-2 hover:bg-white/20 rounded-xl transition-all hover:scale-110 active:scale-95" title={getShiftLabel(-1)}><ChevronLeft size={20} /></button>
@@ -192,8 +228,9 @@ export default function FinancialsPage() {
                 </div>
             </header>
 
-            {/* KPI Cards */}
+            {/* KPI overhead metrics Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Staff Overhead */}
                 <div className="bg-white/70 backdrop-blur-xl p-8 rounded-[2rem] shadow-sm border border-white/50 flex flex-col justify-between hover:shadow-md transition-shadow">
                     <div className="flex justify-between items-start">
                         <div>
@@ -211,6 +248,7 @@ export default function FinancialsPage() {
                     </div>
                 </div>
 
+                {/* Doctor Overhead */}
                 <div className="bg-slate-900 p-8 rounded-[2rem] shadow-2xl shadow-slate-200 text-white flex flex-col justify-between relative overflow-hidden group">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-slate-700 rounded-full -mr-16 -mt-16 opacity-30 blur-3xl group-hover:bg-indigo-900 transition-colors duration-500"></div>
                     <div className="relative flex justify-between items-start z-10">
@@ -230,8 +268,9 @@ export default function FinancialsPage() {
                 </div>
             </div>
 
-            {/* EBITDA & Collections */}
+            {/* EBITDA & Collections Breakdown */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* EBITDA Calculator */}
                 <div className="bg-gradient-to-br from-indigo-600 to-violet-700 text-white rounded-[2rem] p-8 shadow-xl shadow-indigo-200 relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-full bg-white/5 opacity-0 hover:opacity-100 transition-opacity"></div>
                     <div className="flex items-center gap-3 mb-6 opacity-90">
@@ -247,7 +286,7 @@ export default function FinancialsPage() {
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-200 font-bold">$</span>
                                 <input
                                     type="number"
-                                    disabled={timeframe !== 'daily'}
+                                    disabled={timeframe !== 'daily'} // Collections are inputted at a daily level
                                     placeholder="0.00"
                                     value={localCollections}
                                     onChange={(e) => handleCollectionsChange(e.target.value)}
@@ -270,7 +309,7 @@ export default function FinancialsPage() {
                     </div>
                 </div>
 
-                {/* Dept Breakdown */}
+                {/* Department Breakdowns */}
                 <div className="bg-white/80 backdrop-blur-md rounded-[2rem] p-8 shadow-sm border border-white/60">
                     <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider mb-6 flex items-center gap-2">
                         <TrendingUp size={18} className="text-slate-400" /> Department Breakdown
@@ -290,7 +329,7 @@ export default function FinancialsPage() {
                 </div>
             </div>
 
-            {/* Scheduled Hours Breakdown (Visible for Daily and Weekly) */}
+            {/* Employee Scheduled Hours list (Only shows for Daily/Weekly) */}
             {(timeframe === 'daily' || timeframe === 'weekly') && (
                 <div className="bg-white/80 backdrop-blur-md rounded-[2rem] shadow-sm border border-white/60 overflow-hidden">
                     <div className="bg-slate-50/50 px-8 py-5 border-b border-slate-100 flex justify-between items-center">
