@@ -18,15 +18,15 @@ import { useAuth } from "../context/AuthContext";
  * and dynamic action indicators.
  */
 const QuickLink = ({ to, icon: Icon, title, desc, color }: any) => (
-  <NavLink to={to} className="group block p-6 bg-white/60 backdrop-blur-md rounded-[2rem] border border-white/20 shadow-sm hover:shadow-xl hover:shadow-emerald-500/10 transition-all hover:-translate-y-1 relative overflow-hidden">
+  <NavLink to={to} className="group block p-6 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-[2rem] border border-white/20 dark:border-slate-800/40 shadow-sm hover:shadow-xl hover:shadow-emerald-500/10 transition-all hover:-translate-y-1 relative overflow-hidden">
     {/* Dynamic Background Gradient Indicator */}
     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 ${color} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
       <Icon className="text-white" size={26} />
     </div>
-    <h3 className="text-xl font-bold text-slate-800 mb-2 group-hover:text-emerald-700 transition-colors font-heading tracking-tight">{title}</h3>
-    <p className="text-sm text-slate-500 font-medium mb-6 leading-relaxed">{desc}</p>
+    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors font-heading tracking-tight">{title}</h3>
+    <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mb-6 leading-relaxed">{desc}</p>
     {/* Micro-animation: link prompt slides in and fades on hover */}
-    <div className="flex items-center text-sm font-bold text-emerald-600 gap-2 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
+    <div className="flex items-center text-sm font-bold text-emerald-600 dark:text-emerald-400 gap-2 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
       Open Module <ArrowRight size={16} />
     </div>
   </NavLink>
@@ -40,10 +40,10 @@ export default function Home() {
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Header greeting */}
       <header className="mb-10">
-        <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight font-heading mb-2">
+        <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight font-heading mb-2">
           Welcome back
         </h1>
-        <p className="text-slate-500 text-lg">Here is your practice overview for today.</p>
+        <p className="text-slate-500 dark:text-slate-400 text-lg">Here is your practice overview for today.</p>
       </header>
 
       {/* Grid mapping modules */}
